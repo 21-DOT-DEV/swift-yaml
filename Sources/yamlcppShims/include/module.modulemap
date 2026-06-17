@@ -1,0 +1,8 @@
+module yamlcppShims {
+  header "yamlcpp_shims.h"
+  requires cplusplus
+  // Re-export the vendored umbrella the header pulls in, so a test importing
+  // yamlcppShims also sees YAML.Load / IsMap / size / Dump without a second
+  // import.
+  export *
+}

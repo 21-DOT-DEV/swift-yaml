@@ -1,0 +1,74 @@
+# Managed by vendir — https://carvel.dev/vendir
+#
+# swift-yaml vendors yaml-cpp (C++) from
+#   https://github.com/jbeder/yaml-cpp  @  yaml-cpp-0.6.2
+#
+# What syncs where:
+#   Sources/yamlcpp/include  <- upstream include/  (public C++ headers, re-rooted)
+#   Sources/yamlcpp/src      <- upstream src/      (sources + private headers)
+#   Sources/yamlcpp/legal    <- upstream LICENSE   (attribution only; excluded
+#                                                   from the build target)
+#
+# Sync ritual (from the package root):
+#   1. vendir sync
+#   2. swift build && swift test
+#
+# No preserve step: yaml-cpp needs no generated or replacement files. All four
+# of upstream's configure_file() calls emit cmake / pkg-config metadata, none
+# of it compile-required — every #include resolves against the pristine tree.
+# So there is no scripts/vendir-preserve.txt and nothing to restore after sync.
+#
+# Regenerating configure-generated files: none required (see note above).
+#
+# Provenance: the pinned tag below is resolved to a commit SHA in
+# vendir.lock.yml on every sync — commit the lockfile.
+
+apiVersion: vendir.k14s.io/v1alpha1
+kind: Config
+minimumRequiredVersion: 0.45.0
+
+directories:
+
+# Public headers. includePaths are matched against the upstream tree (with its
+# `include/` prefix); newRootPath then strips that prefix so headers land at
+# Sources/yamlcpp/include/yaml-cpp/... — which SwiftPM treats as this target's
+# public-headers root and from which it synthesizes the C++ module map.
+- path: Sources/yamlcpp/include
+  contents:
+  - path: .
+    git:
+      url: https://github.com/jbeder/yaml-cpp
+      ref: yaml-cpp-0.6.2
+    includePaths:
+    - include/yaml-cpp/**/*.h
+    newRootPath: include
+    legalPaths: []   # legal/ is the single home for the license; don't auto-copy here
+
+# Sources + private headers. The .cpp files are compiled by SwiftPM's automatic
+# discovery; the sibling .h private headers (scanner.h, emitterstate.h, ...) are
+# reached via quoted includes that resolve relative to the including file — both
+# in src/ and src/contrib/ — so no headerSearchPath is needed in Package.swift.
+- path: Sources/yamlcpp/src
+  contents:
+  - path: .
+    git:
+      url: https://github.com/jbeder/yaml-cpp
+      ref: yaml-cpp-0.6.2
+    includePaths:
+    - src/**/*.cpp
+    - src/**/*.h
+    newRootPath: src
+    legalPaths: []
+
+# Upstream license. Kept under the sync contract (a tag bump refreshes it) and
+# isolated from the build via Package.swift `exclude: ["legal"]`. Distinct from
+# this repo's own root LICENSE.
+- path: Sources/yamlcpp/legal
+  contents:
+  - path: .
+    git:
+      url: https://github.com/jbeder/yaml-cpp
+      ref: yaml-cpp-0.6.2
+    includePaths:
+    - LICENSE
+    legalPaths: []

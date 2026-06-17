@@ -1,0 +1,27 @@
+apiVersion: vendir.k14s.io/v1alpha1
+directories:
+- contents:
+  - git:
+      commitTitle: Bump CMake version to 0.6.2....
+      sha: 562aefc114938e388457e6a531ed7b54d9dc1b62
+      tags:
+      - yaml-cpp-0.6.2
+    path: .
+  path: Sources/yamlcpp/include
+- contents:
+  - git:
+      commitTitle: Bump CMake version to 0.6.2....
+      sha: 562aefc114938e388457e6a531ed7b54d9dc1b62
+      tags:
+      - yaml-cpp-0.6.2
+    path: .
+  path: Sources/yamlcpp/src
+- contents:
+  - git:
+      commitTitle: Bump CMake version to 0.6.2....
+      sha: 562aefc114938e388457e6a531ed7b54d9dc1b62
+      tags:
+      - yaml-cpp-0.6.2
+    path: .
+  path: Sources/yamlcpp/legal
+kind: LockConfig

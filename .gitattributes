@@ -1,0 +1,8 @@
+# Normalize line endings on checkin; let git infer text vs binary.
+* text=auto
+
+# Language-aware diff hunk headers.
+*.swift diff=swift
+*.cpp   diff=cpp
+*.h     diff=cpp
+*.hpp   diff=cpp
