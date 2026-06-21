@@ -1,8 +1,8 @@
-# Phase 5 — Ecosystem, Performance & Hardening
+# Phase 6 — Ecosystem, Performance & Hardening
 
 **Status:** FUTURE
 **Horizon:** Later
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-20
 
 ## Goal
 
@@ -48,7 +48,7 @@ guessing why they're missing.
      migration guide lower the adoption barrier.
    - Success metrics: public symbols documented; a published feature-parity
      matrix; a getting-started + migration article.
-   - Dependencies: API stabilized through Phase 3.
+   - Dependencies: API stabilized through Phase 4.
    - Confidence: Medium — no docs today; hand off to the docc skills
      (docc-symbols / docc-articles / docc-audit).
 
@@ -65,24 +65,28 @@ guessing why they're missing.
 
 ## Deferred / Blocked
 
-1. Comment preservation & round-trip — DEFERRED (engine-blocked)
-   - Purpose & user value: edit-and-re-emit configs while keeping comments
-     (the ruamel.yaml use case).
+1. Comment-preserving **round-trip** (parse → mutate tree → re-emit) — DEFERRED
+   (engine-blocked)
+   - Purpose & user value: load a config into a value tree, mutate it freely,
+     and re-emit while keeping comments (the ruamel.yaml use case).
    - Why blocked: verified firsthand and via upstream — yaml-cpp's parser
      discards comments (no `OnComment` event; feature requests open since 2012,
      unbuilt). It **cannot** be delivered on this engine.
-   - Only unblock path: an upstream engine change (feature 5) or a separate
-     comment-aware pre/post-processor. Emitting *new* comments programmatically
-     is separately possible but low value.
-   - Confidence: High — that it is infeasible on 0.6.2 is well-evidenced.
+   - Only unblock path: an upstream engine change (feature 5). The *surgical*
+     subset — editing a value in place without re-emitting — does **not** need
+     this and is committed as **Phase 3** (it sidesteps the engine by never
+     serializing the tree). Emitting *new* comments programmatically is
+     separately possible but low value.
+   - Confidence: High — that round-trip is infeasible on 0.6.2 is well-evidenced.
 
 ## Dependencies & Sequencing
 
 - Strict duplicate-key (2) and streaming (6) share a yaml-cpp `EventHandler`
   parse path — build that plumbing once.
-- DocC (4) is most valuable after the Phase 3 API stabilizes.
+- DocC (4) is most valuable after the Phase 4 API stabilizes.
 - Comment round-trip (Deferred) is gated on the upstream bump (5); do not
-  schedule it independently.
+  schedule it independently. Its surgical in-place subset is committed
+  separately as Phase 3 (Now).
 
 ## Phase Metrics & Success Criteria
 
@@ -101,3 +105,6 @@ guessing why they're missing.
 - 2026-06-17: Phase created (Later). Comment round-trip recorded as
   engine-blocked (DEFERRED); streaming + strict-dup-key noted as sharing the
   EventHandler path.
+- 2026-06-20: Renumbered Phase 5 → 6. Split the deferred comment item — the
+  surgical/in-place subset is now committed as Phase 3 (Now); full round-trip
+  stays engine-blocked here.

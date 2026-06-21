@@ -13,6 +13,9 @@ let package = Package(
         // interop on their own targets; the product itself ships interop-free.
         .library(name: "yamlcpp", targets: ["yamlcpp"]),
     ],
+    // Build-time-only DocC plugin, gated to untagged (development) checkouts —
+    // see `developmentDependencies` below.
+    dependencies: Package.Dependency.developmentDependencies,
     targets: [
         // Vendored yaml-cpp (C++). Automatic source discovery compiles
         // everything under src/; public headers live in include/ (SwiftPM
@@ -63,3 +66,24 @@ let package = Package(
     ],
     cxxLanguageStandard: .cxx11
 )
+
+// MARK: - Development-only dependencies
+
+extension Package.Dependency {
+    /// Dependencies needed only when working in this repo, excluded at tagged
+    /// releases (mirrors swift-secp256k1's manifest gate).
+    ///
+    /// The sole entry is the DocC plugin: it is build-time only — it generates
+    /// the hostable static site via `swift package generate-documentation` and
+    /// is not a dependency of any product target, so it adds no code to what
+    /// consumers link. Gating on an untagged checkout means that when swift-yaml
+    /// is resolved at a release tag, `currentTag` is non-nil and consumers never
+    /// fetch or resolve swift-docc-plugin; it is pulled in only for local docs
+    /// work on an untagged checkout.
+    static var developmentDependencies: [Package.Dependency] {
+        guard Context.gitInformation?.currentTag == nil else { return [] }
+        return [
+            .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.5.0")
+        ]
+    }
+}

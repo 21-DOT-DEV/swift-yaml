@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE
 **Horizon:** Now
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-20
 
 ## Goal
 
@@ -39,7 +39,7 @@ or fails — closing those gaps is the highest-leverage work because it is about
      - A `decode`-all entry point returns one decoded value per document.
      - An encode-many entry point emits N documents separated by `---`.
      - A multi-doc K8s fixture round-trips document-for-document.
-   - Dependencies: Phase 1; pairs with explicit document markers (Phase 4).
+   - Dependencies: Phase 1; pairs with explicit document markers (Phase 5).
    - Confidence: Medium — `LoadAll` (parse) and `BeginDoc`/`EndDoc` (emit) are
      confirmed available in yaml-cpp 0.6.2.
    - Notes: settle the API shape (`[T]` vs a lazy stream) in the design spec.
@@ -64,7 +64,7 @@ or fails — closing those gaps is the highest-leverage work because it is about
 - Local ordering: Merge keys first (correctness, self-contained) → multi-doc →
   timestamp. None blocks the others.
 - Cross-phase: multi-document pairs naturally with explicit `---`/`...` markers
-  in Phase 4 (emit side).
+  in Phase 5 (emit side).
 
 ## Phase Metrics & Success Criteria
 
@@ -82,3 +82,5 @@ or fails — closing those gaps is the highest-leverage work because it is about
 
 - 2026-06-17: Phase created (Now). Merge keys prioritized first as a
   firsthand-verified correctness gap.
+- 2026-06-20: Cross-references renumbered (Phase 4 → 5) after In-Place Editing
+  was inserted as Phase 3 (Now).

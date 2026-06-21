@@ -20,17 +20,46 @@ extension YAMLEncoder {
     /// `.iso8601` (YAML reads more naturally with text dates than the raw
     /// reference-date double that `.deferredToDate` produces).
     public enum DateEncodingStrategy: Sendable {
+        /// Defer to `Date`'s own `Encodable` conformance, which emits its
+        /// `timeIntervalSinceReferenceDate` as a `Double`.
         case deferredToDate
+
+        /// Emit the number of seconds since 1 January 1970 (a `Double`).
         case secondsSince1970
+
+        /// Emit the number of milliseconds since 1 January 1970 (a `Double`).
         case millisecondsSince1970
+
+        /// Emit an ISO-8601 string in UTC, such as `2026-06-18T12:00:00Z`.
+        ///
+        /// The default. Text dates read more naturally in YAML than the raw
+        /// reference-date double ``deferredToDate`` produces, and the
+        /// conversion is computed with plain arithmetic so it needs no platform
+        /// floor.
         case iso8601
+
+        /// Emit the date using a caller-supplied closure.
+        ///
+        /// The closure receives the `Date` and an `Encoder` positioned at the
+        /// current location; whatever it encodes becomes the value. It must be
+        /// `@Sendable`.
         case custom(@Sendable (Date, any Encoder) throws -> Void)
     }
 
     /// `Data` encoding, mirroring `JSONEncoder.DataEncodingStrategy`.
     public enum DataEncodingStrategy: Sendable {
+        /// Defer to `Data`'s own `Encodable` conformance, which emits a
+        /// sequence of byte values.
         case deferredToData
+
+        /// Emit a Base64-encoded string. This is the default.
         case base64
+
+        /// Emit the data using a caller-supplied closure.
+        ///
+        /// The closure receives the `Data` and an `Encoder` positioned at the
+        /// current location; whatever it encodes becomes the value. It must be
+        /// `@Sendable`.
         case custom(@Sendable (Data, any Encoder) throws -> Void)
     }
 }
@@ -38,21 +67,60 @@ extension YAMLEncoder {
 extension YAMLDecoder {
     /// `Date` decoding, mirroring `JSONDecoder.DateDecodingStrategy`.
     public enum DateDecodingStrategy: Sendable {
+        /// Defer to `Date`'s own `Decodable` conformance, reading a `Double`
+        /// `timeIntervalSinceReferenceDate`.
         case deferredToDate
+
+        /// Read a `Double` count of seconds since 1 January 1970.
         case secondsSince1970
+
+        /// Read a `Double` count of milliseconds since 1 January 1970.
         case millisecondsSince1970
+
+        /// Read an ISO-8601 string. The default.
+        ///
+        /// Accepts a `T` or space date/time separator, an optional fractional
+        /// second, and a `Z` or `±HH:MM` zone offset; a string that isn't a
+        /// valid ISO-8601 date throws `DecodingError.dataCorrupted`.
         case iso8601
+
+        /// Read the date using a caller-supplied closure.
+        ///
+        /// The closure receives a `Decoder` positioned at the value and returns
+        /// the decoded `Date`. It must be `@Sendable`.
         case custom(@Sendable (any Decoder) throws -> Date)
     }
 
     /// `Data` decoding, mirroring `JSONDecoder.DataDecodingStrategy`.
     public enum DataDecodingStrategy: Sendable {
+        /// Defer to `Data`'s own `Decodable` conformance, reading a sequence of
+        /// byte values.
         case deferredToData
+
+        /// Read a Base64-encoded string. This is the default; an invalid
+        /// Base64 string throws `DecodingError.dataCorrupted`.
         case base64
+
+        /// Read the data using a caller-supplied closure.
+        ///
+        /// The closure receives a `Decoder` positioned at the value and returns
+        /// the decoded `Data`. It must be `@Sendable`.
         case custom(@Sendable (any Decoder) throws -> Data)
     }
 
     /// Decodes a value of `type` from UTF-8 encoded YAML `Data`.
+    ///
+    /// A Foundation convenience that decodes the bytes as UTF-8 and forwards to
+    /// the `String` overload of `decode(_:from:)`, so the same strategies,
+    /// limits, and errors apply.
+    ///
+    /// - Parameters:
+    ///   - type: The type to decode.
+    ///   - data: The UTF-8 encoded YAML document.
+    /// - Returns: The decoded value.
+    /// - Throws: The same errors as the `String` overload — `DecodingError`,
+    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or
+    ///   over-budget input.
     public func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         try decode(type, from: String(decoding: data, as: UTF8.self))
     }

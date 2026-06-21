@@ -2,7 +2,7 @@
 
 **Status:** COMPLETE
 **Horizon:** Foundation
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-20
 
 ## Goal
 
@@ -70,7 +70,7 @@ dependency. This is the shipped foundation every later phase builds on.
 ## Dependencies & Sequencing
 
 - All four features are shipped and interlocked; the wrap underpins them.
-- Everything downstream (Phases 2–5) extends the serialization/walk + emitter
+- Everything downstream (Phases 2–6) extends the serialization/walk + emitter
   boundary established here.
 
 ## Phase Metrics & Success Criteria
@@ -88,3 +88,5 @@ dependency. This is the shipped foundation every later phase builds on.
 
 - 2026-06-17: Recorded COMPLETE at roadmap creation; verified against the
   passing test suite and `API-PROPOSAL.md` done report.
+- 2026-06-20: Renumbered downstream reference (Phases 2–5 → 2–6) after
+  In-Place & Comment-Preserving Editing was inserted as Phase 3.

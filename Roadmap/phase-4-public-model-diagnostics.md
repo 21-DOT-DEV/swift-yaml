@@ -1,8 +1,8 @@
-# Phase 3 — Public Model & Diagnostics
+# Phase 4 — Public Model & Diagnostics
 
 **Status:** PLANNED
 **Horizon:** Next
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-20
 
 ## Goal
 
@@ -80,3 +80,5 @@ tools, linters, and config loaders can build on.
 
 - 2026-06-17: Phase created (Next), with the public node type as the explicit
   keystone for marks and tags.
+- 2026-06-20: Renumbered Phase 3 → 4 after In-Place & Comment-Preserving
+  Editing was inserted as Phase 3 (Now); scope unchanged.

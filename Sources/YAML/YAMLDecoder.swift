@@ -16,15 +16,48 @@ public final class YAMLDecoder {
 
     /// How mapping keys map onto `CodingKey`s.
     public enum KeyDecodingStrategy: Sendable {
+        /// Match each `CodingKey` against the mapping key verbatim.
         case useDefaultKeys
+
+        /// Convert `snake_case` mapping keys to `camelCase` before matching
+        /// against `CodingKeys`.
+        ///
+        /// Mirrors `JSONDecoder.KeyDecodingStrategy.convertFromSnakeCase` and
+        /// is the inverse of
+        /// ``YAMLEncoder/KeyEncodingStrategy/convertToSnakeCase``:
+        /// `my_url_value` resolves to `myURLValue`, preserving any leading or
+        /// trailing underscores.
         case convertFromSnakeCase
+
+        /// Derive each lookup key from a closure applied to the coding path.
+        ///
+        /// The closure receives the full coding path — its last element is the
+        /// key being decoded — and returns the key to look up in the mapping.
+        /// The closure must be `@Sendable`.
         case custom(@Sendable ([any CodingKey]) -> any CodingKey)
     }
 
     /// How non-finite floating-point values are recognized.
     public enum NonConformingFloatDecodingStrategy: Sendable {
+        /// Recognize YAML's native `.inf`, `-.inf`, and `.nan` tokens (in any
+        /// capitalization the core schema allows) as the corresponding
+        /// floating-point values. This is the default.
         case nativeYAML
+
+        /// Throw a `DecodingError` rather than resolving any infinity or NaN
+        /// representation, matching `JSONDecoder`'s strict default.
         case `throw`
+
+        /// Recognize the given placeholder strings as infinity and NaN.
+        ///
+        /// The inverse of
+        /// ``YAMLEncoder/NonConformingFloatEncodingStrategy/convertToString(positiveInfinity:negativeInfinity:nan:)``;
+        /// supply the same three strings the encoder used.
+        ///
+        /// - Parameters:
+        ///   - positiveInfinity: The text decoded as `+.infinity`.
+        ///   - negativeInfinity: The text decoded as `-.infinity`.
+        ///   - nan: The text decoded as `.nan`.
         case convertFromString(positiveInfinity: String, negativeInfinity: String, nan: String)
     }
 
@@ -33,7 +66,15 @@ public final class YAMLDecoder {
     /// the document, so on this engine both options behave as last-wins for
     /// genuinely repeated keys; strict rejection is a documented future tier.
     public enum DuplicateKeyStrategy: Sendable, Equatable {
+        /// Keep the value of the first occurrence of a repeated key.
+        ///
+        /// Note: on this engine yaml-cpp collapses duplicates before the
+        /// overlay observes the document, so a genuinely repeated key already
+        /// resolves to its last value — see the type-level discussion.
         case useFirst
+
+        /// Keep the value of the last occurrence of a repeated key. This is
+        /// the default and matches yaml-cpp's own behavior.
         case useLast
     }
 
@@ -50,6 +91,21 @@ public final class YAMLDecoder {
         /// Maximum input size in UTF-8 bytes.
         public var maxInputBytes: Int
 
+        /// Creates a set of document limits.
+        ///
+        /// The defaults are generous enough that ordinary configuration and
+        /// data-interchange documents never reach them; pass a negative value
+        /// for any parameter to disable that individual limit, or use
+        /// ``unbounded`` to disable all three.
+        ///
+        /// - Parameters:
+        ///   - maxDepth: Maximum nesting depth of collections within
+        ///     collections. Default `128`.
+        ///   - maxNodeCount: Maximum number of nodes materialized while
+        ///     building the value tree — the alias-bomb backstop. Default
+        ///     `10_000_000`.
+        ///   - maxInputBytes: Maximum input size in UTF-8 bytes. Default
+        ///     `52_428_800` (50 MiB).
         public init(maxDepth: Int = 128, maxNodeCount: Int = 10_000_000, maxInputBytes: Int = 50 * 1024 * 1024) {
             self.maxDepth = maxDepth
             self.maxNodeCount = maxNodeCount
@@ -86,16 +142,49 @@ public final class YAMLDecoder {
     /// Contextual information made available to types during decoding.
     public var userInfo: [CodingUserInfoKey: any Sendable] = [:]
 
+    /// Creates a decoder with the default options.
+    ///
+    /// Every strategy starts at its default and ``documentLimits`` starts at
+    /// ``DocumentLimits/default``, so a freshly created decoder is already
+    /// safe to point at untrusted input; set the properties above to customize.
     public init() {}
 
     /// Decodes a value of `type` from a YAML `String`.
+    ///
+    /// The text is parsed once — under the active ``documentLimits`` — into an
+    /// intermediate tree, which the `Codable` machinery then walks to produce
+    /// `T`. YAML scalars are untyped, so each scalar is resolved to the
+    /// concrete Swift type the container asks for.
+    ///
+    /// - Parameters:
+    ///   - type: The type to decode.
+    ///   - yaml: The YAML document to read.
+    /// - Returns: The decoded value.
+    /// - Throws: `DecodingError` for the usual `Codable` failures (type
+    ///   mismatch, missing key, and so on); `DecodingError.dataCorrupted`
+    ///   wrapping a ``YAMLError`` when the input is malformed
+    ///   (``YAMLError/parse(message:line:column:)``) or exceeds a safety
+    ///   budget (``YAMLError/documentTooComplex(_:)``).
     public func decode<T: Decodable>(_ type: T.Type, from yaml: String) throws -> T {
         let value = try YAMLSerialization.parse(yaml, config: parseConfig)
         let decoder = _YAMLDecoder(value: value, options: makeOptions(), codingPath: [])
         return try decoder.unbox(value, as: type, at: [])
     }
 
-    /// Decodes a value of `type` from UTF-8 encoded YAML bytes (Foundation-free).
+    /// Decodes a value of `type` from UTF-8 encoded YAML bytes.
+    ///
+    /// The Foundation-free entry point: it decodes the bytes as UTF-8 and
+    /// forwards to the `String` overload of `decode(_:from:)`, so the same
+    /// strategies, limits, and errors apply. Use it on platforms without
+    /// Foundation, or any time the document is already in a `[UInt8]` buffer.
+    ///
+    /// - Parameters:
+    ///   - type: The type to decode.
+    ///   - data: The UTF-8 encoded YAML document.
+    /// - Returns: The decoded value.
+    /// - Throws: The same errors as the `String` overload — `DecodingError`,
+    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or
+    ///   over-budget input.
     public func decode<T: Decodable>(_ type: T.Type, from data: [UInt8]) throws -> T {
         try decode(type, from: String(decoding: data, as: UTF8.self))
     }

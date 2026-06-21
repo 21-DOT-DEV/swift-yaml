@@ -64,3 +64,6 @@ fastlane/test_output
 # vendir / wrap build scratch
 .vendir-cache/
 upstream-build/
+
+# docc-suite local tooling artifacts (symbol calibration, audit baselines)
+/.docc-suite-state/

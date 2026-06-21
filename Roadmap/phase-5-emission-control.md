@@ -1,8 +1,8 @@
-# Phase 4 — Emission & Output Control
+# Phase 5 — Emission & Output Control
 
 **Status:** PLANNED
 **Horizon:** Next
-**Last Updated:** 2026-06-17
+**Last Updated:** 2026-06-20
 
 ## Goal
 
@@ -71,3 +71,5 @@ feasible on yaml-cpp 0.6.2 (and deliberately drops what isn't).
 
 - 2026-06-17: Phase created (Next). Line-width control excluded as
   engine-infeasible; anchor emission scoped as opt-in/FUTURE.
+- 2026-06-20: Renumbered Phase 4 → 5 after In-Place Editing was inserted as
+  Phase 3; scope unchanged.
