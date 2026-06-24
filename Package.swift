@@ -83,7 +83,7 @@ extension Package.Dependency {
     static var developmentDependencies: [Package.Dependency] {
         guard Context.gitInformation?.currentTag == nil else { return [] }
         return [
-            .package(url: "https://github.com/apple/swift-docc-plugin", exact: "1.5.0")
+            .package(url: "https://github.com/swiftlang/swift-docc-plugin", exact: "1.5.0")
         ]
     }
 }
