@@ -3,6 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "swift-yaml",
+    // Declared floor (was SwiftPM's implicit macOS 10.13 default). The CxxStdlib overlay that
+    // provides the documented std.string → String conversions has shipped with elevated
+    // per-platform availability floors in some toolchain distributions
+    // (swiftlang/swift#77909); an undeclared 10.13 target left those initializers outside
+    // overload resolution on GitHub's macOS runners ("no exact matches in call to
+    // initializer") while identical local builds passed. macOS 14 matches the platforms
+    // this package actually supports.
+    platforms: [.macOS(.v14)],
     products: [
         // The idiomatic Swift product: YAMLEncoder / YAMLDecoder + Codable.
         // Consumers `import YAML`. Because it rides the C++-interop shims, every
