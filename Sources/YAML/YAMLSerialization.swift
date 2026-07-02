@@ -1,4 +1,11 @@
 import yamlcppShims
+// The std.string → Swift.String conversions used below live in the CxxStdlib
+// overlay. Import it explicitly: only some toolchains implicitly load it into
+// C++-interop targets (Xcode 27 beta does, Xcode 26.x does not — the exact
+// difference that broke downstream CI on otherwise-identical Swift versions).
+#if canImport(CxxStdlib)
+import CxxStdlib
+#endif
 
 // The two — and only two — boundaries where the overlay crosses into yaml-cpp:
 // `parse` (text → YAMLValue, via the guarded `yamlx::parse` + node inspection)
