@@ -1,5 +1,19 @@
 import yamlcppShims
 
+extension String {
+    /// Creates a `String` from a C++-owned byte view (`yamlx.CStr`: a `const char*`
+    /// plus a byte length). This mirrors the CxxStdlib overlay's own
+    /// `String(_ cxxString: std.string)` initializer, but reads plain C pointer types
+    /// so it stays independent of that overlay — which drops out of overload
+    /// resolution under whole-module compilation on macOS (see the `CStr` note in
+    /// yamlcpp_shims.h and Projects/README.md). NUL-safe (honors the byte length) and,
+    /// like `String(_: std.string)`, repairs ill-formed UTF-8 with U+FFFD.
+    init(_ view: yamlx.CStr) {
+        guard let base = view.data, view.len > 0 else { self = ""; return }
+        self = String(decoding: UnsafeRawBufferPointer(start: UnsafeRawPointer(base), count: view.len), as: UTF8.self)
+    }
+}
+
 // The two — and only two — boundaries where the overlay crosses into yaml-cpp:
 // `parse` (text → YAMLValue, via the guarded `yamlx::parse` + node inspection)
 // and `emit` (YAMLValue → text, via the event-streamed `yamlx::` emitter). All
@@ -30,7 +44,7 @@ enum YAMLSerialization {
         let result = text.withCString { yamlx.parse($0) }
         guard result.ok else {
             let yamlError = YAMLError.parse(
-                message: String(result.message),
+                message: String(yamlx.parseMessage(result)),
                 line: Int(result.line) + 1,
                 column: Int(result.column) + 1)
             throw DecodingError.dataCorrupted(
