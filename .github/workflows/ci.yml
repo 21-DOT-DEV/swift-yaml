@@ -1,0 +1,87 @@
+# CI for swift-yaml.
+#
+# swift-yaml wraps yaml-cpp through Swift C++ interop, so the interesting risk is the
+# std::string -> Swift.String boundary in `Sources/YAML/YAMLSerialization.swift`. That
+# boundary once failed to compile ONLY on macOS CI, and only under whole-module /
+# multi-file-batch compilation: the CxxStdlib overlay's `String(_: std.string)`
+# initializer drops out of overload resolution in that mode (forums.swift.org/t/74393).
+# See Projects/README.md and the `CStr` note in Sources/yamlcppShims/include/yamlcpp_shims.h.
+#
+# This workflow guards that boundary from regressing:
+#   - Linux is the control — a different std::string->String path; always passed.
+#   - macOS `swift build` / `swift test` (debug) mirror how a downstream consumer
+#     builds; on a low-core runner debug batches files multi-file and reproduces
+#     the historical failure.
+#   - macOS `swift build -c release` compiles the YAML module whole-module — the
+#     configuration that reproduced the failure on EVERY macOS toolchain. This is the
+#     deterministic regression guard, not reliant on the runner's core count.
+#   - Projects/InteropRepro is a downstream package (imports the YAML product with C++
+#     interop, round-trips a Codable value); building it in release compiles the YAML
+#     dependency whole-module — the same guard from a consumer's perspective.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  linux:
+    name: Ubuntu (Swift 6.3)
+    runs-on: ubuntu-latest
+    container: swift:6.3 # official image — deterministic toolchain, no setup action
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Downstream consumer (Projects/InteropRepro)
+        run: swift run --package-path Projects/InteropRepro
+
+  macos:
+    name: macOS (Swift 6.3)
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      # Pinned for determinism (the swift-bitcoinkernel convention). The whole-module
+      # failure reproduced on every Swift 6.3+ toolchain, so the exact Xcode is not
+      # load-bearing — adjust freely if the runner image's Xcodes shift.
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+
+      # Debug — mirrors a downstream consumer's default build. On the runner's low
+      # core count this batches the YAML module's files multi-file, which is how the
+      # failure originally surfaced in a downstream project's CI.
+      - name: Build (debug)
+        run: swift build
+      - name: Test (debug)
+        run: swift test
+
+      # Release — compiles the YAML module whole-module. This is the deterministic
+      # reproduction of the historical failure and the primary regression guard.
+      # (`swift build` does not compile test targets, so the raw-yaml-cpp smoke test
+      # in yamlcppTests — which intentionally exercises std::string directly and is
+      # single-file/debug-safe — is not built here.)
+      - name: Build (release / whole-module regression guard)
+        run: swift build -c release
+
+      # Downstream reproduction: building the consumer in release compiles the YAML
+      # dependency whole-module, exactly as a release consumer would.
+      - name: Downstream consumer (Projects/InteropRepro, release)
+        run: swift run -c release --package-path Projects/InteropRepro

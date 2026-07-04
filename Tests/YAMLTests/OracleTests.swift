@@ -3,6 +3,17 @@ import YAML
 import yamlcppShims  // the independent reference: yaml-cpp's own parser
 import Foundation    // the independent reference: JSONDecoder/JSONEncoder
 
+// The same overlay-independent `String(_: yamlx.CStr)` conversion the overlay defines
+// (see YAMLSerialization). YAMLTests is a separate module, so it carries its own copy —
+// letting the oracle checks read yaml-cpp scalar text without the CxxStdlib overlay, so
+// they also compile under whole-module mode.
+extension String {
+    init(_ view: yamlx.CStr) {
+        guard let base = view.data, view.len > 0 else { self = ""; return }
+        self = String(decoding: UnsafeRawBufferPointer(start: UnsafeRawPointer(base), count: view.len), as: UTF8.self)
+    }
+}
+
 // Correctness is proven against checks that do NOT share our implementation:
 // (1) re-parse our emitter's output through yaml-cpp — a different code path
 // than our event-streamed emit; (2) decode the same data model from YAML and

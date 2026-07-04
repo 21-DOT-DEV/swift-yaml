@@ -33,6 +33,26 @@ namespace yamlx {
 // `YAML`). The overlay refers to nodes as `yamlx.Node`.
 using Node = YAML::Node;
 
+// A NUL-safe, non-owning view of C++-side string bytes handed to Swift: a
+// `const char*` plus an explicit byte length. The overlay copies these bytes into
+// a Swift String immediately (via `String.init(_: yamlx.CStr)` in YAMLSerialization),
+// so `data` only needs to stay valid for the duration of that single call.
+//
+// This type is the whole reason the string helpers below return a view instead of
+// a `std::string`: a `std::string` must NEVER cross into Swift as a value. Doing so
+// requires the CxxStdlib overlay's `String(_: std.string)` initializer (or the Cxx
+// module's `std.string` Collection conformance) to be in scope during overload
+// resolution — and under whole-module / multi-file-batch compilation on macOS those
+// conformances silently drop out (forums.swift.org/t/74393), so `String(someStdString)`
+// fails with "no exact matches in call to initializer": only on macOS CI, only in
+// whole-module mode. Returning `const char*` + length keeps std::string entirely on
+// the C++ side; Swift converts via stdlib pointer APIs, which are always available.
+// See Projects/README.md for the full diagnosis.
+struct CStr {
+  const char *data;
+  long len;
+};
+
 // ---------------------------------------------------------------------------
 // Legacy smoke-test helpers (kept for Tests/yamlcppTests). These call the
 // throwing as<T>() and MUST NOT be used by the overlay on untrusted input —
@@ -92,6 +112,13 @@ inline ParseResult parse(const char *input) {
   return r;
 }
 
+// NUL-safe view of a failed parse's error message (see `CStr`). The message lives
+// in the Swift-held ParseResult, so the view is valid for as long as Swift holds
+// that value — no copy needed.
+inline CStr parseMessage(const ParseResult &r) {
+  return CStr{r.message.data(), static_cast<long>(r.message.size())};
+}
+
 // 0 undefined / 1 null / 2 scalar / 3 sequence / 4 map. Type() does not throw.
 inline int nodeKind(const Node &node) {
   switch (node.Type()) {
@@ -114,16 +141,21 @@ inline long count(const Node &node) {
   return static_cast<long>(node.size());
 }
 
-// Scalar text by value (Scalar() returns a const reference — copy it out so no
-// Swift String aliases yaml-cpp storage). Empty string for a non-scalar node.
-inline std::string scalarText(const Node &node) {
+// Scalar text as a NUL-safe view (see `CStr`). Scalar() returns a const reference;
+// we copy it into thread-local storage the view points at, so nothing Swift-side
+// aliases yaml-cpp's node storage and no std::string crosses the boundary. Empty
+// view for a non-scalar node. The view is valid until the next scalarText() call on
+// the same thread; the overlay converts to String before the next call.
+inline CStr scalarText(const Node &node) {
+  static thread_local std::string buf;
+  buf.clear();
   try {
     if (node.IsScalar()) {
-      return node.Scalar();
+      buf = node.Scalar();
     }
   } catch (...) {
   }
-  return std::string();
+  return CStr{buf.data(), static_cast<long>(buf.size())};
 }
 
 // The node's tag (e.g. "?", "!", "tag:yaml.org,2002:str"); used only for null
@@ -145,22 +177,25 @@ inline Node seqItem(const Node &node, long index) {
   }
 }
 
-// i-th map key, as scalar text. Empty string if absent / non-scalar key.
-// Index-based access advances the iterator each call (O(n) per call); the
-// overlay materializes a map once and bounds total work with its node budget.
-inline std::string mapKeyText(const Node &node, long index) {
+// i-th map key, as a NUL-safe scalar-text view (see `CStr`). Empty view if absent /
+// non-scalar key. Index-based access advances the iterator each call (O(n) per call);
+// the overlay materializes a map once and bounds total work with its node budget.
+inline CStr mapKeyText(const Node &node, long index) {
+  static thread_local std::string buf;
+  buf.clear();
   try {
-    if (!node.IsMap()) return std::string();
-    long i = 0;
-    for (YAML::const_iterator it = node.begin(); it != node.end(); ++it, ++i) {
-      if (i == index) {
-        if (it->first.IsScalar()) return it->first.Scalar();
-        return std::string();
+    if (node.IsMap()) {
+      long i = 0;
+      for (YAML::const_iterator it = node.begin(); it != node.end(); ++it, ++i) {
+        if (i == index) {
+          if (it->first.IsScalar()) buf = it->first.Scalar();
+          break;
+        }
       }
     }
   } catch (...) {
   }
-  return std::string();
+  return CStr{buf.data(), static_cast<long>(buf.size())};
 }
 
 // i-th map value. Undefined Node on any error.
@@ -202,13 +237,26 @@ inline bool emitterOK(void *p) {
   return static_cast<YAML::Emitter *>(p)->good();
 }
 
-inline std::string emitterError(void *p) {
-  return static_cast<YAML::Emitter *>(p)->GetLastError();
+// The emitter's last error, as a NUL-safe view (see `CStr`). GetLastError() returns
+// a std::string by value; copy it into thread-local storage the view points at.
+inline CStr emitterError(void *p) {
+  static thread_local std::string buf;
+  try {
+    buf = static_cast<YAML::Emitter *>(p)->GetLastError();
+  } catch (...) {
+    buf.clear();
+  }
+  return CStr{buf.data(), static_cast<long>(buf.size())};
 }
 
-inline std::string emitterText(void *p) {
-  const char *s = static_cast<YAML::Emitter *>(p)->c_str();
-  return s ? std::string(s) : std::string();
+// The emitted document text, as a NUL-safe view (see `CStr`). Emitter::c_str() is a
+// stable, NUL-terminated buffer owned by the emitter — valid until the emitter is
+// freed — so no copy is needed; size() gives the exact byte length. The overlay
+// converts to String before it frees the emitter.
+inline CStr emitterText(void *p) {
+  YAML::Emitter *e = static_cast<YAML::Emitter *>(p);
+  const char *s = e->c_str();
+  return CStr{s ? s : "", s ? static_cast<long>(e->size()) : 0};
 }
 
 inline void beginMap(void *p, bool flow) {
