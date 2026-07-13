@@ -2,6 +2,7 @@
 #define YAMLCPP_SHIMS_H
 
 #include <cstddef>
+#include <cstring>
 #include <string>
 
 #include "yaml-cpp/yaml.h"
@@ -209,6 +210,87 @@ inline Node mapValue(const Node &node, long index) {
   } catch (...) {
   }
   return Node();
+}
+
+// ---------------------------------------------------------------------------
+// Source position & span (Phase 3, feature 3). yaml-cpp records where each node
+// STARTS (Node::Mark()) but never where it ends; computing the end is ours.
+// Both helpers return plain integers by value, so Swift imports the structs as
+// safe (escapable) value types needing no interop lifetime annotations — unlike
+// the CStr view above, they carry no borrowed memory. See
+// Specs/001-mark-span-shim/plan.md for the full design and review history.
+// ---------------------------------------------------------------------------
+
+// A node's start position. ok == false means the node was invalid or undefined:
+// Node::Mark() throws InvalidNode on an invalid node (guarded here) and returns
+// null_mark() (-1,-1,-1) for an undefined one. pos is a 0-based byte offset into
+// the decoded UTF-8 stream; line/column are 0-based as yaml-cpp reports them
+// (the overlay adds 1 to line/column for human display).
+struct Mark {
+  bool ok;
+  long pos;
+  long line;
+  long column;
+};
+
+inline Mark mark(const Node &node) {
+  Mark m{false, -1, -1, -1};
+  try {
+    YAML::Mark k = node.Mark();  // throws InvalidNode on an invalid node
+    if (k.is_null()) return m;   // undefined/empty node -> ok stays false
+    m = Mark{true, static_cast<long>(k.pos), static_cast<long>(k.line),
+             static_cast<long>(k.column)};
+  } catch (...) {
+  }
+  return m;
+}
+
+// A scalar value's source span. `end` / `endReliable` are meaningful ONLY when
+// endReliable == true: a plain, unquoted, single-line scalar whose SOURCE bytes
+// equal its parsed bytes. Reliability is *verified against the source*, not
+// guessed — yaml-cpp discards scalar style on parse, so Node::Style() cannot
+// tell plain from quoted. Three guards make endReliable a proven property:
+//   * source[pos] is not a scalar-style indicator (' " | >). A quoted/block
+//     scalar always marks AT its indicator, and a plain scalar can never begin
+//     with one, so this is the real plain-vs-quoted discriminator. It alone
+//     rejects a quoted value that begins with its own wrapper quote (k: ''''
+//     -> ' ), which a bare byte compare would wrongly accept.
+//   * n > 0: std::memcmp(_, _, 0) is vacuously equal, which would otherwise mark
+//     an empty quoted/block scalar reliable (empty plain scalars parse as null).
+//   * the n source bytes at pos equal the parsed value exactly (single line).
+// Any mismatch (quotes, escapes, block/folded, multi-line, or a pos/byte skew
+// from a BOM or CRLF input) leaves endReliable == false and the caller falls
+// back. `source`/`len` are the original document bytes (read-only, not retained).
+struct Span {
+  bool ok;
+  long pos;
+  long line;
+  long column;
+  long end;
+  bool endReliable;
+};
+
+inline Span valueSpan(const Node &node, const char *source, long len) {
+  Mark m = mark(node);
+  Span s{m.ok, m.pos, m.line, m.column, -1, false};
+  if (!m.ok) return s;
+  try {
+    if (node.IsScalar() && source != nullptr && m.pos >= 0) {
+      const std::string &v = node.Scalar();
+      long n = static_cast<long>(v.size());
+      if (n > 0 &&                                 // non-empty: memcmp(_,_,0) is vacuously equal
+          m.pos + n <= len &&
+          v.find('\n') == std::string::npos &&     // single line
+          source[m.pos] != '\'' && source[m.pos] != '"' &&   // not single/double quoted
+          source[m.pos] != '|' && source[m.pos] != '>' &&    // not literal/folded block
+          std::memcmp(source + m.pos, v.data(), static_cast<std::size_t>(n)) == 0) {  // verbatim
+        s.end = m.pos + n;
+        s.endReliable = true;
+      }
+    }
+  } catch (...) {
+  }
+  return s;
 }
 
 // ---------------------------------------------------------------------------
