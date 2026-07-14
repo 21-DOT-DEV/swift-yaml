@@ -27,9 +27,18 @@ Package.swift setting, a file outside the managed tree, or a vendir rule.
   template-shaped surface (`Node::as<T>()`, `operator[]<Key>`) that Swift
   C++ interop cannot instantiate from Swift. Created on demand from the
   test's build diagnostics.
-- `Tests/yamlcppTests/` — Swift smoke tests. The only target that enables
-  C++ interop (`.interoperabilityMode(.Cxx)`); interop is viral and
-  semver-major, so it never touches the library product.
+- `Sources/YAML/` — the authored Swift overlay (`import YAML`): `YAMLEncoder`/
+  `YAMLDecoder` + Codable, plus `YAMLEditor` (surgical in-place value edits that
+  preserve comments and formatting), built on the shims.
+- `Tests/yamlcppTests/`, `Tests/YAMLTests/` — Swift tests for the wrap and the
+  overlay.
+
+C++ interop (`.interoperabilityMode(.Cxx)`) is viral and semver-major, so it is
+enabled only where needed: the `YAML` overlay target and the two test targets.
+The vendored `yamlcpp` **library product** ships interop-free — its own build does
+not enable interop — but any Swift target that imports `yamlcpp` (or the `YAML`
+overlay) opts into `.interoperabilityMode(.Cxx)` on its own target, per
+`Package.swift`. The accepted cost of a C++-only upstream.
 
 ## Verify
 

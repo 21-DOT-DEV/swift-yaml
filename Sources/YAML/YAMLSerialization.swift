@@ -220,6 +220,17 @@ enum YAMLSerialization {
         return text
     }
 
+    /// Emits a single scalar as an inline token — no trailing newline — reusing
+    /// the exact per-kind formatting and quoting `write` uses for whole-document
+    /// output. `YAMLEditor` splices the result in place, so producing the same
+    /// bytes the emitter would means the edit re-parses to the intended value.
+    static func emitScalarToken(_ value: YAMLValue) -> String {
+        let emitter = yamlx.newEmitter()
+        defer { yamlx.freeEmitter(emitter) }
+        write(value, to: emitter, options: EmitOptions(indent: 2, flow: false, sortKeys: false))
+        return String(yamlx.emitterText(emitter))
+    }
+
     private static func write(
         _ value: YAMLValue,
         to emitter: UnsafeMutableRawPointer?,

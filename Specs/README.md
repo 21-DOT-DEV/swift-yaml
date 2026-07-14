@@ -14,3 +14,4 @@ roadmap re-phasing.
 | # | Feature | Phase | Status | Plan |
 |---|---|---|---|---|
 | 001 | Mark/span shim — source-position bridge (`yamlx::mark` / `yamlx::valueSpan`) | 3 · F3 | Implemented | [plan.md](001-mark-span-shim/plan.md) |
+| 002 | Surgical value set — change one value in place, comments preserved (`YAMLEditor.set`) | 3 · F1 | Implemented | [plan.md](002-surgical-value-set/plan.md) |
