@@ -74,6 +74,75 @@ import yamlcppShims
         #expect(scalarAtPath(try YAMLEditor.set("k: 'a''b'", at: ["k"], to: "z"), ["k"]) == "z")
     }
 
+    // MARK: Flow collections — a *scalar inside* `[…]`/`{…}` is editable
+    //
+    // `set` overwrites only the scalar's own byte span (unlike `unset`, which
+    // deletes the whole line), so siblings and the enclosing brackets survive.
+    // These lock the capability the doc advertises; the refusal cases below prove
+    // `set` still declines the same shapes (multi-line/null) *inside* flow.
+
+    /// A plain scalar in a flow sequence is replaced in place — the sibling and
+    /// the brackets are byte-identical, including when the target abuts `]`.
+    @Test func flowSequenceScalarEditsInPlace() throws {
+        #expect(try YAMLEditor.set("key: [a, b]", at: ["key", 0], to: "x") == "key: [x, b]")
+        #expect(try YAMLEditor.set("key: [a, b]", at: ["key", 1], to: "x") == "key: [a, x]")  // abuts ]
+        let out = try YAMLEditor.set("key: [a, b]", at: ["key", 0], to: "x")
+        #expect(scalarAtPath(out, ["key", 0]) == "x")   // oracle
+        #expect(scalarAtPath(out, ["key", 1]) == "b")
+    }
+
+    /// A flow mapping value is replaced in place; the other pair is untouched.
+    @Test func flowMappingValueEditsInPlace() throws {
+        #expect(try YAMLEditor.set("key: {a: b, c: d}", at: ["key", "c"], to: "x") == "key: {a: b, c: x}")
+        let out = try YAMLEditor.set("key: {a: b, c: d}", at: ["key", "a"], to: "x")
+        #expect(out == "key: {a: x, c: d}")
+        #expect(scalarAtPath(out, ["key", "a"]) == "x")
+        #expect(scalarAtPath(out, ["key", "c"]) == "d")
+    }
+
+    /// A quoted scalar inside a flow collection is spanned (quotes and all) and
+    /// replaced; the neighbor stays verbatim.
+    @Test func flowQuotedScalarEdits() throws {
+        let out = try YAMLEditor.set("key: [\"a\", b]", at: ["key", 0], to: "z")
+        #expect(out == "key: [z, b]")
+        #expect(scalarAtPath(out, ["key", 0]) == "z")
+    }
+
+    /// A nested flow collection resolves through both levels to the leaf scalar.
+    @Test func flowNestedScalarEdits() throws {
+        #expect(try YAMLEditor.set("key: [[a, b], c]", at: ["key", 0, 1], to: "x") == "key: [[a, x], c]")
+    }
+
+    /// Quote-as-needed still applies inside flow: a numeric-looking string is
+    /// quoted so it reads back as a string, not a number.
+    @Test func flowNumericStringStaysQuoted() throws {
+        let out = try YAMLEditor.set("key: [a, b]", at: ["key", 0], to: "2")
+        #expect(out == "key: [\"2\", b]")
+        #expect(scalarAtPath(out, ["key", 0]) == "2")   // string, via the re-parse oracle
+    }
+
+    /// A flow collection may span lines (opener on an earlier line); editing a
+    /// scalar on a continuation line touches only that scalar.
+    @Test func flowSpanningMultipleLinesEdits() throws {
+        #expect(try YAMLEditor.set("key: [a,\n  b]", at: ["key", 1], to: "x") == "key: [a,\n  x]")
+    }
+
+    /// Refusal parity: a null element inside flow is still `unsupportedValueShape`
+    /// (there is no scalar span to overwrite) — flow doesn't relax the shape rules.
+    @Test func flowNullElementIsUnsupported() {
+        #expect(throws: YAMLEditError.self) {
+            try YAMLEditor.set("key: [~, b]", at: ["key", 0], to: "x")
+        }
+    }
+
+    /// Refusal parity: a *multi-line* quoted scalar inside flow is refused, same
+    /// as anywhere — the single-line quoted-end scan defers on the line break.
+    @Test func flowMultiLineQuotedScalarIsUnsupported() {
+        #expect(throws: YAMLEditError.self) {
+            try YAMLEditor.set("key: [\"a\nb\", c]", at: ["key", 0], to: "z")
+        }
+    }
+
     // MARK: Errors
 
     @Test func missingKeyThrows() {

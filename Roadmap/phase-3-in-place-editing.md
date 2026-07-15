@@ -2,7 +2,7 @@
 
 **Status:** ACTIVE
 **Horizon:** Now
-**Last Updated:** 2026-06-20
+**Last Updated:** 2026-07-14
 
 ## Goal
 
@@ -17,7 +17,7 @@ reformatted file.
 
 ## Key Features
 
-1. Surgical value set — PLANNED
+1. Surgical value set — IMPLEMENTED
    - Purpose & user value: `set(path, value)` over the original source text
      changes a scalar in place; comments, ordering, indentation, and quoting
      elsewhere are untouched. The diff is limited to the edited value.
@@ -44,7 +44,7 @@ reformatted file.
    - Confidence: Medium — line/range deletion reuses the span logic; trailing
      vs. leading comment ownership is the edge to pin down with fixtures.
 
-3. Mark/span shim — PLANNED
+3. Mark/span shim — IMPLEMENTED
    - Purpose & user value: expose a parsed node's source position
      (`Node::Mark()`, line/column) and a way to compute its value's end span, so
      the Swift layer can locate exactly what to splice.
@@ -90,6 +90,10 @@ reformatted file.
 
 ## Phase Change Log
 
+- 2026-07-14: Features **3 (Mark/span shim)** and **1 (Surgical value set)** marked
+  **IMPLEMENTED** — merged to `main` (PRs #2, #3, #4) with spec-derived tests green
+  across debug and release/whole-module. Feature **2 (`unset`)** is planned (spec
+  `Specs/003-key-removal-unset/`); the phase stays **ACTIVE** until it lands.
 - 2026-06-20: Phase created (Now), co-active with Phase 2. Split from Phase 6's
   deferred "comment preservation & round-trip" item — the surgical/in-place
   subset is feasible on yaml-cpp 0.6.2 and committed here; full round-trip stays
