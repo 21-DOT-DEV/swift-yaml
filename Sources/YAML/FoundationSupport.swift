@@ -112,11 +112,12 @@ extension YAMLDecoder {
     ///
     /// A Foundation convenience that decodes the bytes as UTF-8 and forwards to
     /// the `String` overload of `decode(_:from:)`, so the same strategies,
-    /// limits, and errors apply.
+    /// limits, and errors apply — including decoding only the first document of
+    /// a multi-document stream.
     ///
     /// - Parameters:
     ///   - type: The type to decode.
-    ///   - data: The UTF-8 encoded YAML document.
+    ///   - data: The UTF-8 encoded YAML text to read (first document only, if it is a stream).
     /// - Returns: The decoded value.
     /// - Throws: The same errors as the `String` overload — `DecodingError`,
     ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or
