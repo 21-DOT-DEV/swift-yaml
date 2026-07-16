@@ -234,7 +234,7 @@ import yamlcppShims
 
     single: '"Howdy!" he cried.'
     quoted: ' # Not a ''comment''.'
-    tie-fighter: '|\\-\*-/|'
+    tie-fighter: '|\-*-/|'
     """#
 
     /// The core promise on spec-canonical input: editing one value leaves every
@@ -260,7 +260,7 @@ import yamlcppShims
     @Test func spec217_editSingleQuotedWithEmbeddedDoubleQuote() throws {
         let out = try YAMLEditor.set(Self.example217, at: ["single"], to: "hi")
         #expect(scalarAtPath(out, ["single"]) == "hi")
-        #expect(out.contains(#"tie-fighter: '|\\-\*-/|'"#))       // neighbor verbatim
+        #expect(out.contains(#"tie-fighter: '|\-*-/|'"#))       // neighbor verbatim
         #expect(out.contains(#"unicode: "Sosa did fine.☺""#)) // neighbor verbatim
     }
 

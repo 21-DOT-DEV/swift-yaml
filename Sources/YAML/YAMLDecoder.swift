@@ -156,9 +156,13 @@ public final class YAMLDecoder {
     /// `T`. YAML scalars are untyped, so each scalar is resolved to the
     /// concrete Swift type the container asks for.
     ///
+    /// If the text holds several `---`-separated documents, only the **first**
+    /// is decoded; any following documents are ignored (no error is raised).
+    /// Decoding every document in a stream is a separate, future entry point.
+    ///
     /// - Parameters:
     ///   - type: The type to decode.
-    ///   - yaml: The YAML document to read.
+    ///   - yaml: The YAML text to read (first document only, if it is a stream).
     /// - Returns: The decoded value.
     /// - Throws: `DecodingError` for the usual `Codable` failures (type
     ///   mismatch, missing key, and so on); `DecodingError.dataCorrupted`
@@ -175,12 +179,13 @@ public final class YAMLDecoder {
     ///
     /// The Foundation-free entry point: it decodes the bytes as UTF-8 and
     /// forwards to the `String` overload of `decode(_:from:)`, so the same
-    /// strategies, limits, and errors apply. Use it on platforms without
+    /// strategies, limits, and errors apply — including decoding only the first
+    /// document of a multi-document stream. Use it on platforms without
     /// Foundation, or any time the document is already in a `[UInt8]` buffer.
     ///
     /// - Parameters:
     ///   - type: The type to decode.
-    ///   - data: The UTF-8 encoded YAML document.
+    ///   - data: The UTF-8 encoded YAML text to read (first document only, if it is a stream).
     /// - Returns: The decoded value.
     /// - Throws: The same errors as the `String` overload — `DecodingError`,
     ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or

@@ -16,3 +16,4 @@ roadmap re-phasing.
 | 001 | Mark/span shim — source-position bridge (`yamlx::mark` / `yamlx::valueSpan`) | 3 · F3 | Implemented | [plan.md](001-mark-span-shim/plan.md) |
 | 002 | Surgical value set — change one value in place, comments preserved (`YAMLEditor.set`) | 3 · F1 | Implemented | [plan.md](002-surgical-value-set/plan.md) |
 | 003 | Key/element removal — delete a leaf entry in place, comments preserved (`YAMLEditor.unset`) | 3 · F2 | Implemented | [plan.md](003-key-removal-unset/plan.md) |
+| 004 | Spec-example conformance — decode the specification's overview examples and pin where we differ (tests only) | 6 · Hardening | Planned | [plan.md](004-spec-conformance/plan.md) |
