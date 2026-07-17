@@ -2,7 +2,7 @@
 
 **Status:** FUTURE
 **Horizon:** Later
-**Last Updated:** 2026-06-20
+**Last Updated:** 2026-07-17
 
 ## Goal
 
@@ -23,15 +23,16 @@ guessing why they're missing.
    - Confidence: Medium — trivial, pure-Swift parity with Yams; gate so it
      doesn't cut against the cross-platform/Foundation-light posture.
 
-2. Strict duplicate-key rejection (`.throw`) — PLANNED
+2. Strict duplicate-key rejection (`.reject`) — PLANNED
    - Purpose & user value: config validators and security-sensitive loaders can
      reject documents with duplicate mapping keys instead of silently
      last-wins.
    - Success metrics: an opt-in `duplicateKeyStrategy` case rejects duplicates
      with a typed error and accurate position.
    - Dependencies: Phase 1.
-   - Confidence: Medium — `Load` collapses duplicates, so detection needs a
-     yaml-cpp `EventHandler`/pre-scan path (shared with streaming below).
+   - Confidence: Medium — yaml-cpp keeps both entries of a repeated key, so
+     detection uses a yaml-cpp `EventHandler`/pre-scan that flags the first
+     repeat before the tree is built (shared with streaming below).
    - Notes: completes the existing `useFirst`/`useLast` strategy enum.
 
 3. Performance benchmarks vs Yams — PLANNED
@@ -62,6 +63,20 @@ guessing why they're missing.
      materializing the whole tree. Shares the `EventHandler` plumbing with
      strict duplicate-key detection; narrow audience, since `documentLimits`
      already addresses the DoS motivation.
+
+7. Spec-example conformance suite — IMPLEMENTED
+   - Purpose & user value: decode the YAML 1.2.2 spec's Chapter-2 overview
+     examples and pin exactly where swift-yaml differs, so conformance is proven
+     and every deviation is a recorded, intentional choice rather than a surprise.
+   - Success metrics: the spec's overview examples decode (or are recorded as
+     known issues); divergences live in a single manifest guarded with
+     `withKnownIssue`; a subset cross-checks against `JSONDecoder`.
+   - Status: **IMPLEMENTED** — merged to `main` (PR #6, 2026-07-15), delivered
+     ahead of this FUTURE phase. `Tests/YAMLTests/SpecConformanceTests.swift`:
+     28 examples — 23 clean, 3 intended (first-document-only), 2 known gaps
+     (2.11 sequence keys, 2.23 multi-line `!!binary`) — green across the three
+     passes. Tests-only: the sole product change was one doc sentence on
+     `YAMLDecoder.decode` (first-document-only). Spec `Specs/004-spec-conformance/`.
 
 ## Deferred / Blocked
 
@@ -102,6 +117,12 @@ guessing why they're missing.
 
 ## Phase Change Log
 
+- 2026-07-17: Feature **7 (Spec-example conformance suite)** added and marked
+  **IMPLEMENTED** — it had landed on `main` as **PR #6** (2026-07-15, 28 spec
+  examples green with 2 recorded known issues) but had no roadmap entry, so the
+  spec index/plan and this roadmap disagreed: a status drift, now reconciled (this
+  file, the `Specs/004` plan header, and the `Specs/README` index). Delivered ahead
+  of this FUTURE phase, which stays **FUTURE** (its other items are unstarted).
 - 2026-06-17: Phase created (Later). Comment round-trip recorded as
   engine-blocked (DEFERRED); streaming + strict-dup-key noted as sharing the
   EventHandler path.

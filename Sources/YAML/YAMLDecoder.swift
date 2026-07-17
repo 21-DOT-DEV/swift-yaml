@@ -61,21 +61,30 @@ public final class YAMLDecoder {
         case convertFromString(positiveInfinity: String, negativeInfinity: String, nan: String)
     }
 
-    /// How duplicate mapping keys are resolved. Note: yaml-cpp's parser
-    /// collapses duplicate keys (last value wins) before the overlay observes
-    /// the document, so on this engine both options behave as last-wins for
-    /// genuinely repeated keys; strict rejection is a documented future tier.
+    /// How duplicate mapping keys are resolved. yaml-cpp exposes both entries of
+    /// a repeated key, so the overlay applies this setting while building the
+    /// value: `useFirst` keeps the first occurrence's value, `useLast` (the
+    /// default) keeps the last. `reject` refuses the document instead — an
+    /// event-driven scan of the source flags the first repeat.
     public enum DuplicateKeyStrategy: Sendable, Equatable {
-        /// Keep the value of the first occurrence of a repeated key.
-        ///
-        /// Note: on this engine yaml-cpp collapses duplicates before the
-        /// overlay observes the document, so a genuinely repeated key already
-        /// resolves to its last value — see the type-level discussion.
+        /// Keep the value of the first occurrence of a repeated key. (yaml-cpp
+        /// exposes both occurrences, so the overlay honors this while it builds
+        /// the value.)
         case useFirst
 
         /// Keep the value of the last occurrence of a repeated key. This is
         /// the default and matches yaml-cpp's own behavior.
         case useLast
+
+        /// Refuse a document that repeats a mapping key: decoding throws a
+        /// ``YAMLError/duplicateKey(key:line:column:)`` (wrapped as
+        /// `DecodingError.dataCorrupted`) at the first repeat. Duplicates are
+        /// found by an event-driven scan of the first document of a stream
+        /// (matching decode's scope). Only **scalar** keys are compared, by text;
+        /// null, alias, and whole-structure (sequence or mapping) keys are consumed
+        /// for parity but not compared — in the string-keyed overlay they collapse
+        /// together rather than being flagged.
+        case reject
     }
 
     /// Resource budgets applied while parsing untrusted input. A negative value
@@ -167,8 +176,10 @@ public final class YAMLDecoder {
     /// - Throws: `DecodingError` for the usual `Codable` failures (type
     ///   mismatch, missing key, and so on); `DecodingError.dataCorrupted`
     ///   wrapping a ``YAMLError`` when the input is malformed
-    ///   (``YAMLError/parse(message:line:column:)``) or exceeds a safety
-    ///   budget (``YAMLError/documentTooComplex(_:)``).
+    ///   (``YAMLError/parse(message:line:column:)``), exceeds a safety budget
+    ///   (``YAMLError/documentTooComplex(_:)``), or — under
+    ///   ``DuplicateKeyStrategy/reject`` — repeats a mapping key
+    ///   (``YAMLError/duplicateKey(key:line:column:)``).
     public func decode<T: Decodable>(_ type: T.Type, from yaml: String) throws -> T {
         let value = try YAMLSerialization.parse(yaml, config: parseConfig)
         let decoder = _YAMLDecoder(value: value, options: makeOptions(), codingPath: [])
@@ -188,8 +199,8 @@ public final class YAMLDecoder {
     ///   - data: The UTF-8 encoded YAML text to read (first document only, if it is a stream).
     /// - Returns: The decoded value.
     /// - Throws: The same errors as the `String` overload — `DecodingError`,
-    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or
-    ///   over-budget input.
+    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed,
+    ///   over-budget, or (under ``DuplicateKeyStrategy/reject``) duplicate-key input.
     public func decode<T: Decodable>(_ type: T.Type, from data: [UInt8]) throws -> T {
         try decode(type, from: String(decoding: data, as: UTF8.self))
     }

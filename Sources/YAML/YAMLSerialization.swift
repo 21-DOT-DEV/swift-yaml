@@ -41,6 +41,26 @@ enum YAMLSerialization {
             try checkNesting(text, maxDepth: config.maxDepth)
         }
 
+        // Strict duplicate-key rejection (opt-in): an event-driven scan of the
+        // first document, run *after* the size/depth guards so untrusted input
+        // stays budgeted, and only when `.reject` is chosen. Detected duplicates
+        // surface as `DecodingError.dataCorrupted` wrapping a `YAMLError`, like
+        // the parse path — a bare `YAMLError` never escapes to the caller.
+        if config.duplicateKeyStrategy == .reject {
+            let dup = text.withCString { yamlx.firstDuplicateKey($0) }
+            if dup.found {
+                let yamlError = YAMLError.duplicateKey(
+                    key: String(dup.key),
+                    line: Int(dup.line) + 1,
+                    column: Int(dup.column) + 1)
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: [],
+                        debugDescription: yamlError.description,
+                        underlyingError: yamlError))
+            }
+        }
+
         let result = text.withCString { yamlx.parse($0) }
         guard result.ok else {
             let yamlError = YAMLError.parse(
@@ -93,13 +113,45 @@ enum YAMLSerialization {
             var mapping = YAMLMapping()
             for i in 0..<n {
                 let key = String(yamlx.mapKeyText(node, i))
-                let value = try build(yamlx.mapValue(node, i), depth: depth + 1, count: &count, config: config)
-                // yaml-cpp's Load collapses duplicate keys before we see them,
-                // so this branch is defensive; honor the policy if one ever
-                // surfaces (e.g. via a future event-driven parse path).
-                if mapping.contains(key), config.duplicateKeyStrategy == .useFirst {
-                    continue
+                // yaml-cpp exposes both entries of a repeated key here (its map
+                // iteration is not deduplicated), so apply the strategy *before*
+                // building the value. The contains-check drives `.useFirst`
+                // (first occurrence wins, later values skipped) and `.useLast`
+                // (fall through to overwrite) uniformly, including the degenerate
+                // "" bucket that non-scalar keys collapse into (they carry no text,
+                // so `mapKeyText` yields "").
+                if mapping.contains(key) {
+                    switch config.duplicateKeyStrategy {
+                    case .reject:
+                        // Only a **non-empty** key is rejected here. An empty key
+                        // text is ambiguous — a genuine "" scalar key, or a
+                        // non-scalar key (null, alias, sequence, mapping) that has
+                        // no text and collapses into the "" bucket. Two "" *scalar*
+                        // keys are already rejected by the byte pre-pass (which
+                        // never inserts non-scalar keys), so gating on non-empty
+                        // avoids a false duplicate when a non-scalar key and a
+                        // distinct "" scalar key collide, and matches the
+                        // documented scope (non-scalar keys aren't compared). The
+                        // net still catches a non-empty repeat the pre-pass missed
+                        // — e.g. NFC vs NFD keys, canonically equal but
+                        // byte-distinct — reporting the key's own mark.
+                        if !key.isEmpty {
+                            let m = yamlx.mark(yamlx.mapKey(node, i))
+                            let err = YAMLError.duplicateKey(
+                                key: key,
+                                line: m.ok ? Int(m.line) + 1 : 0,
+                                column: m.ok ? Int(m.column) + 1 : 0)
+                            throw DecodingError.dataCorrupted(
+                                DecodingError.Context(
+                                    codingPath: [], debugDescription: err.description, underlyingError: err))
+                        }
+                    case .useFirst:
+                        continue                 // keep the first occurrence; skip its value
+                    case .useLast:
+                        break                    // fall through to build + overwrite
+                    }
                 }
+                let value = try build(yamlx.mapValue(node, i), depth: depth + 1, count: &count, config: config)
                 mapping.set(value, forKey: key)
             }
             return .mapping(mapping)
