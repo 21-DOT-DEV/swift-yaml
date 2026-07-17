@@ -3,11 +3,15 @@
 
 #include <cstddef>
 #include <cstring>
+#include <set>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "yaml-cpp/yaml.h"
 #include "yaml-cpp/emitter.h"
 #include "yaml-cpp/node/emit.h"
+#include "yaml-cpp/eventhandler.h"
 
 // Authored bridges (NOT vendored — this lives outside the vendir-managed
 // Sources/yamlcpp tree). yaml-cpp's value access is template-shaped
@@ -53,6 +57,108 @@ struct CStr {
   const char *data;
   long len;
 };
+
+// ---------------------------------------------------------------------------
+// Strict duplicate-key detection (DuplicateKeyStrategy.reject).
+//
+// The overlay's resolving strategies (useFirst/useLast) apply while it builds its
+// value; `reject` instead needs to *catch* a repeated key. Rather than re-walk the
+// built tree, detection watches the parse *events*: it fails fast (rejects before
+// the whole tree is materialized — good for untrusted input), gets the position
+// for free, and stays isolated from the value-building path. A custom EventHandler
+// keeps a stack of map/sequence frames and flags the first repeated key. It mirrors
+// NodeBuilder's
+// key/value bookkeeping — every node event consumes one slot in the enclosing
+// map, and a nested collection consumes its slot at its *start*, so key/value
+// parity survives arbitrary nesting. Compares by key text; a null/alias/complex
+// key is counted for parity but not compared. A tree-free pass over the FIRST
+// document only (matching YAMLDecoder's first-document scope), cheaper than a
+// Load, guarded like the other helpers (malformed input -> found = false; the
+// normal Load surfaces the parse error). `line`/`column` are 0-based (the
+// overlay adds 1). `key` views a thread-local buffer, valid until the next call.
+// ---------------------------------------------------------------------------
+
+struct DupResult {
+  bool found;
+  long line;
+  long column;
+  CStr key;
+};
+
+class DupKeyHandler : public YAML::EventHandler {
+ public:
+  bool found = false;
+  long line = 0, column = 0;
+  std::string key;
+
+  void OnDocumentStart(const YAML::Mark &) override {}
+  void OnDocumentEnd() override {}
+  void OnNull(const YAML::Mark &m, YAML::anchor_t) override { consume(false, m, ""); }
+  void OnAlias(const YAML::Mark &m, YAML::anchor_t) override { consume(false, m, ""); }
+  void OnScalar(const YAML::Mark &m, const std::string &, YAML::anchor_t,
+                const std::string &value) override {
+    consume(true, m, value);
+  }
+  void OnSequenceStart(const YAML::Mark &m, const std::string &, YAML::anchor_t,
+                       YAML::EmitterStyle::value) override {
+    consume(false, m, "");
+    frames.push_back(Frame{false, false, {}});
+  }
+  void OnSequenceEnd() override { pop(); }
+  void OnMapStart(const YAML::Mark &m, const std::string &, YAML::anchor_t,
+                  YAML::EmitterStyle::value) override {
+    consume(false, m, "");
+    frames.push_back(Frame{true, true, {}});
+  }
+  void OnMapEnd() override { pop(); }
+
+ private:
+  struct Frame { bool isMap; bool expectingKey; std::set<std::string> keys; };
+  std::vector<Frame> frames;
+
+  // Consume one slot in the enclosing map; a scalar in a key slot is dup-checked.
+  void consume(bool isScalar, const YAML::Mark &m, const std::string &value) {
+    if (frames.empty() || !frames.back().isMap) return;
+    Frame &f = frames.back();
+    bool keySlot = f.expectingKey;
+    f.expectingKey = !f.expectingKey;
+    if (keySlot && isScalar && !found && !f.keys.insert(value).second) {
+      found = true;
+      line = m.line;
+      column = m.column;
+      key = value;
+    }
+  }
+  void pop() { if (!frames.empty()) frames.pop_back(); }
+};
+
+// The first duplicate mapping key in the first document, or `found == false`.
+inline DupResult firstDuplicateKey(const char *input) {
+  static thread_local std::string keyBuf;
+  DupResult r{false, 0, 0, CStr{"", 0}};
+  DupKeyHandler handler;  // outside the try, so a duplicate recorded before a
+  try {                   // later syntax error survives stack unwinding.
+    std::istringstream stream(input);
+    YAML::Parser parser(stream);
+    parser.HandleNextDocument(handler);  // first document only
+  } catch (...) {
+  }
+  // Copy the key into the static buffer under its own guard: the assignment
+  // allocates and can throw (e.g. std::bad_alloc), and a C++ exception that
+  // escapes into Swift is undefined behavior (see the CStr note above). On
+  // failure, fall through with the default found == false rather than let it
+  // escape. Kept separate from the parse try so a duplicate recorded before a
+  // later syntax error is still reported.
+  try {
+    if (handler.found) {
+      keyBuf = handler.key;
+      r = DupResult{true, handler.line, handler.column,
+                    CStr{keyBuf.data(), static_cast<long>(keyBuf.size())}};
+    }
+  } catch (...) {
+  }
+  return r;
+}
 
 // ---------------------------------------------------------------------------
 // Legacy smoke-test helpers (kept for Tests/yamlcppTests). These call the
@@ -206,6 +312,22 @@ inline Node mapValue(const Node &node, long index) {
     long i = 0;
     for (YAML::const_iterator it = node.begin(); it != node.end(); ++it, ++i) {
       if (i == index) return it->second;
+    }
+  } catch (...) {
+  }
+  return Node();
+}
+
+// i-th map key node (parallels `mapValue`; use `mark()` on it for the key's
+// source position). Undefined Node on any error. `mapKeyText` returns the key's
+// text; this returns the node so the duplicate-key reject path can report where
+// the *key* starts rather than its value.
+inline Node mapKey(const Node &node, long index) {
+  try {
+    if (!node.IsMap()) return Node();
+    long i = 0;
+    for (YAML::const_iterator it = node.begin(); it != node.end(); ++it, ++i) {
+      if (i == index) return it->first;
     }
   } catch (...) {
   }

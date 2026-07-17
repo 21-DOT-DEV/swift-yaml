@@ -58,7 +58,7 @@ For reference, the defaults are depth 128, 10,000,000 nodes, and 50 MiB; any par
 The protection is real but bounded, and it is worth naming what it does and doesn't promise:
 
 - **The budgets are heuristic, not a proof.** The defaults are tuned to yaml-cpp's measured cliffs, not derived from a formal model. They defend the known cheap attacks; they are not a guarantee against every conceivable pathological input.
-- **Strict duplicate-key rejection is not yet available.** yaml-cpp collapses duplicate mapping keys (last value wins) before the overlay observes the document, so ``YAMLDecoder/duplicateKeyStrategy`` cannot currently reject duplicates outright. If duplicate keys are a data-integrity concern for you, validate separately for now. See <doc:Decoding>.
+- **Strict duplicate-key rejection is opt-in.** Set ``YAMLDecoder/duplicateKeyStrategy`` to ``YAMLDecoder/DuplicateKeyStrategy/reject`` and decoding throws on the first repeated mapping key (an event-driven scan of the first document, run after the size/depth budgets). It is off by default — enable it where a doubled key would be a data-integrity hazard. See <doc:Decoding>.
 - **Resource limits are not semantic validation.** These budgets bound CPU and memory; they do not vet meaning. A small, well-formed document can still carry values that are dangerous to *your* application — that validation remains yours to perform.
 - **`.unbounded` is a foot-gun by design.** It exists for trusted input and turns off everything above. Reach for raising an individual limit before disabling the lot.
 

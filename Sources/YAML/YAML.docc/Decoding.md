@@ -44,9 +44,9 @@ With Foundation available, ``YAMLDecoder/dateDecodingStrategy`` defaults to ``YA
 
 ## Decide how duplicate keys resolve
 
-``YAMLDecoder/duplicateKeyStrategy`` selects which value wins when a key repeats, defaulting to ``YAMLDecoder/DuplicateKeyStrategy/useLast``.
+``YAMLDecoder/duplicateKeyStrategy`` decides what happens when a key repeats, defaulting to ``YAMLDecoder/DuplicateKeyStrategy/useLast``.
 
-> Note: On the current engine this setting is effectively informational. yaml-cpp's loader collapses duplicate keys (last value wins) before the overlay ever sees the document, so a genuinely repeated key already resolves to its last value regardless of the strategy. The property exists so the policy is explicit and so future parser paths can honor ``YAMLDecoder/DuplicateKeyStrategy/useFirst`` faithfully.
+> Note: yaml-cpp exposes both entries of a repeated key, so the overlay applies the setting while building the value — ``YAMLDecoder/DuplicateKeyStrategy/useFirst`` keeps the first value, ``YAMLDecoder/DuplicateKeyStrategy/useLast`` (the default) the last. ``YAMLDecoder/DuplicateKeyStrategy/reject`` refuses the document instead, throwing a ``YAMLError/duplicateKey(key:line:column:)`` (wrapped as `DecodingError.dataCorrupted`) at the first repeated **scalar** key in the first document. (Null, alias, and whole-structure keys are consumed for parity but not compared.)
 
 ## Handle malformed and oversized input
 
@@ -62,8 +62,12 @@ do {
             print("Syntax error at \(line):\(column) — \(message)")
         case let .documentTooComplex(detail):
             print("Rejected by a safety limit: \(detail)")
+        case let .duplicateKey(key, line, column):
+            print("Duplicate key '\(key)' at \(line):\(column)")   // under .reject
         case .emit:
             break   // encode-only
+        @unknown default:
+            break   // YAMLError is non-frozen — handle cases added in future versions
         }
     }
 } catch {
@@ -71,7 +75,9 @@ do {
 }
 ```
 
-The ``YAMLError/parse(message:line:column:)`` case reports a 1-based line and column straight from yaml-cpp, which is usually enough to point a user at the offending line.
+``YAMLError`` is not frozen, so a future release may add cases; the `@unknown default:` keeps an exhaustive `switch` over it source-compatible when that happens (see Swift Evolution [SE-0192](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0192-non-exhaustive-enums.md)).
+
+The ``YAMLError/parse(message:line:column:)`` case reports a 1-based line and column (the overlay adds 1 to yaml-cpp's 0-based marks), which is usually enough to point a user at the offending line.
 
 > Warning: The safety limits in ``YAMLDecoder/documentLimits`` are on by default and surface as ``YAMLError/documentTooComplex(_:)``. Do not disable them for input you don't fully control — see <doc:SafeDecoding>.
 

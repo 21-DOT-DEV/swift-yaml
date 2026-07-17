@@ -120,8 +120,8 @@ extension YAMLDecoder {
     ///   - data: The UTF-8 encoded YAML text to read (first document only, if it is a stream).
     /// - Returns: The decoded value.
     /// - Throws: The same errors as the `String` overload — `DecodingError`,
-    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed or
-    ///   over-budget input.
+    ///   including `dataCorrupted` wrapping a ``YAMLError`` for malformed,
+    ///   over-budget, or (under ``DuplicateKeyStrategy/reject``) duplicate-key input.
     public func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         try decode(type, from: String(decoding: data, as: UTF8.self))
     }

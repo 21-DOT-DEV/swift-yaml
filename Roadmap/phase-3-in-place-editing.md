@@ -57,7 +57,7 @@ reformatted file.
    - Notes: the same Mark exposure feeds Phase 4's source-marks feature — build
      it once, here, and reuse.
 
-4. Insert a missing scalar (`insert`) — PLANNED
+4. Insert a missing scalar (`insert`) — IMPLEMENTED
    - Purpose & user value: write a scalar that isn't there yet — **fill** a null
      value, or **add** a brand-new key into a block that already exists — in place,
      so comments and formatting elsewhere survive. Lets a caller add/fill a field
@@ -112,6 +112,13 @@ reformatted file.
 
 ## Phase Change Log
 
+- 2026-07-17: Feature **4 (`insert`)** marked **IMPLEMENTED** — it had landed on `main`
+  as **PR #7** (2026-07-16; `insert` + `valueAlreadyPresent` + 19 `InsertTests` + 3
+  `EngineNullContract` tripwires, green across the three passes) but its status markers
+  were never flipped — an overdue status drift, now reconciled (this file, the `Specs/005`
+  plan header, and the `Specs/README` index). **All four Phase 3 features are now
+  IMPLEMENTED** (shim, set, unset, insert), so the phase is again ready to move
+  **ACTIVE → COMPLETE** — left ACTIVE pending that maintainer call.
 - 2026-07-16: Feature **4 (`insert`)** added as **PLANNED** — write a scalar that
   isn't there yet (fill a null; add a leaf key into an existing block); spec
   `Specs/005-insert-scalar/`. The **Out-of-Scope** bullet on inserting keys was
