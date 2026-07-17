@@ -17,3 +17,4 @@ roadmap re-phasing.
 | 002 | Surgical value set — change one value in place, comments preserved (`YAMLEditor.set`) | 3 · F1 | Implemented | [plan.md](002-surgical-value-set/plan.md) |
 | 003 | Key/element removal — delete a leaf entry in place, comments preserved (`YAMLEditor.unset`) | 3 · F2 | Implemented | [plan.md](003-key-removal-unset/plan.md) |
 | 004 | Spec-example conformance — decode the specification's overview examples and pin where we differ (tests only) | 6 · Hardening | Planned | [plan.md](004-spec-conformance/plan.md) |
+| 005 | Insert a missing scalar — fill a blank value or add a new key in place, comments preserved (`YAMLEditor.insert`) | 3 · F4 | Planned | [plan.md](005-insert-scalar/plan.md) |

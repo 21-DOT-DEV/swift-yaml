@@ -435,6 +435,218 @@ extension YAMLEditor {
     }
 }
 
+// MARK: - Insertion (insert)
+
+extension YAMLEditor {
+    /// Writes `value` at `path` when it isn't there yet — either **fills** a value
+    /// that is currently YAML null (a key with nothing after it, `~`, or `null`), or
+    /// **adds** a brand-new key by appending one line at the end of its block, at the
+    /// siblings' indentation. Everything else stays byte-for-byte identical, and a
+    /// same-line trailing comment on a filled value is kept.
+    ///
+    /// Add-only: if a real value already sits at `path` (an empty string `""` counts),
+    /// it throws ``YAMLEditError/valueAlreadyPresent(path:)`` — use ``set(_:at:to:)``
+    /// to change a value that is already there.
+    ///
+    /// - Throws: ``YAMLEditError`` — a malformed or anchor/alias document; a real value
+    ///   already present; or a shape this version cannot add into: a list position
+    ///   (appending to a sequence is deferred), a parent that does not resolve
+    ///   (`pathNotFound`), a parent that is an inline `{…}` map / a list / a scalar
+    ///   (`unsupportedValueShape`), or a target that is itself a map or sequence.
+    public static func insert(_ yaml: String, at path: [YAMLPath.Component], to value: Value) throws -> String {
+        let bytes = Array(yaml.utf8)
+        if documentUsesAnchorsOrAliases(bytes) { throw YAMLEditError.documentUsesAnchorsOrAliases }
+
+        // The target must be a map key; a bare list position is out of scope.
+        guard let last = path.last, case .key(let newKey) = last else {
+            throw YAMLEditError.unsupportedValueShape(path: path)
+        }
+
+        return try yaml.withCString { cstr in
+            let result = yamlx.parse(cstr)
+            guard result.ok else {
+                throw YAMLEditError.malformedDocument(
+                    .parse(message: String(yamlx.parseMessage(result)),
+                           line: Int(result.line) + 1, column: Int(result.column) + 1))
+            }
+
+            // Navigate to the parent (all but the last component), validating each step.
+            var node = result.root
+            var trail: [YAMLPath.Component] = []
+            for component in path.dropLast() {
+                trail.append(component)
+                switch component {
+                case .key(let key):
+                    guard kind(node) == kindMap, let child = mapChild(node, key: key) else {
+                        throw YAMLEditError.pathNotFound(path: trail)
+                    }
+                    node = child
+                case .index(let index):
+                    guard kind(node) == kindSequence, index >= 0, index < Int(yamlx.count(node)) else {
+                        throw YAMLEditError.pathNotFound(path: trail)
+                    }
+                    node = yamlx.seqItem(node, index)
+                }
+                guard kind(node) != kindUndefined else { throw YAMLEditError.pathNotFound(path: trail) }
+            }
+            let parent = node
+
+            // The parent must be a *block* map. A missing parent already threw above.
+            guard kind(parent) == kindMap else { throw YAMLEditError.unsupportedValueShape(path: path) }
+            let pMark = yamlx.mark(parent)
+            guard pMark.ok, pMark.pos >= 0, Int(pMark.pos) < bytes.count else {
+                throw YAMLEditError.unsupportedValueShape(path: path)
+            }
+            // A block map's mark points at its first key; a flow map's points at `{`.
+            if bytes[Int(pMark.pos)] == braceOpen { throw YAMLEditError.unsupportedValueShape(path: path) }
+
+            let valueToken = YAMLSerialization.emitScalarToken(value.storage)
+            if let existing = mapChild(parent, key: newKey) {
+                switch kind(existing) {
+                case kindNull:   return try fillNullValue(bytes, existing, valueToken, path)
+                case kindScalar: throw YAMLEditError.valueAlreadyPresent(path: path)   // includes ""
+                default:         throw YAMLEditError.notASingleValue(path: path)
+                }
+            } else {
+                let keyToken = YAMLSerialization.emitScalarToken(.string(newKey))
+                return try appendKey(bytes, firstChildAt: Int(pMark.pos), keyToken: keyToken, valueToken: valueToken, path: path)
+            }
+        }
+    }
+
+    /// Fills a null value's slot on its own line with `valueToken`, keeping any
+    /// same-line trailing comment. The null's node mark is unreliable for this — for a
+    /// bare `key:` it lands on the *next* line — so the key's line is found by scanning
+    /// back from the mark to the nearest content, then its value slot is rewritten.
+    private static func fillNullValue(_ bytes: [UInt8], _ valueNode: yamlx.Node, _ valueToken: String, _ path: [YAMLPath.Component]) throws -> String {
+        let n = bytes.count
+        let m = yamlx.mark(valueNode)
+        guard m.ok, m.pos >= 0 else { throw YAMLEditError.unsupportedValueShape(path: path) }
+
+        // Back up over whitespace/newlines to land on the key's line.
+        var j = min(Int(m.pos), n) - 1
+        while j >= 0 && (bytes[j] == space || bytes[j] == tab || bytes[j] == newline || bytes[j] == carriageReturn) { j -= 1 }
+        guard j >= 0 else { throw YAMLEditError.unsupportedValueShape(path: path) }
+        var lineStart = j
+        while lineStart > 0 && bytes[lineStart - 1] != newline && bytes[lineStart - 1] != carriageReturn { lineStart -= 1 }
+        var lineEnd = j
+        while lineEnd < n && bytes[lineEnd] != newline && bytes[lineEnd] != carriageReturn { lineEnd += 1 }
+        guard let colon = keyValueColon(bytes, lineStart, lineEnd) else {
+            throw YAMLEditError.unsupportedValueShape(path: path)
+        }
+
+        // A trailing comment (`#` at a token boundary) after the value slot.
+        var commentStart: Int? = nil
+        var i = colon + 1
+        while i < lineEnd {
+            if bytes[i] == hash && (bytes[i - 1] == space || bytes[i - 1] == tab) { commentStart = i; break }
+            i += 1
+        }
+
+        // Rebuild the line: `<indent>key: <value>[ <comment>]`, replacing whatever
+        // null spelling (nothing / `~` / `null`) sat in the value slot.
+        var line = Array(bytes[lineStart...colon])
+        line.append(space)
+        line.append(contentsOf: valueToken.utf8)
+        if let cs = commentStart {
+            // Keep the whitespace that preceded the comment (aligned comments
+            // survive) — as `set` leaves the bytes after a value untouched. Back up
+            // over that run (never past the value's own separator) and re-emit it.
+            var gapStart = cs
+            while gapStart > colon + 1 && (bytes[gapStart - 1] == space || bytes[gapStart - 1] == tab) { gapStart -= 1 }
+            line.append(contentsOf: bytes[gapStart..<lineEnd])
+        }
+        return String(decoding: bytes[0..<lineStart] + line + bytes[lineEnd...], as: UTF8.self)
+    }
+
+    /// Appends `<indent>key: value` at the end of the block whose first child key is
+    /// at `firstChildAt`, after the block's last data line (before any trailing
+    /// block-level comment or blank), at the siblings' indentation.
+    private static func appendKey(_ bytes: [UInt8], firstChildAt: Int, keyToken: String, valueToken: String, path: [YAMLPath.Component]) throws -> String {
+        let n = bytes.count
+        // The parent's mark points at its first child key; its line gives the
+        // children's indentation.
+        var firstLineStart = firstChildAt
+        while firstLineStart > 0 && bytes[firstLineStart - 1] != newline && bytes[firstLineStart - 1] != carriageReturn { firstLineStart -= 1 }
+        let childIndent = Array(bytes[firstLineStart..<firstChildAt])
+        guard childIndent.allSatisfy({ $0 == space || $0 == tab }) else {
+            throw YAMLEditError.unsupportedValueShape(path: path)
+        }
+        let childCol = childIndent.count
+
+        // Walk the block to the dedent (a non-blank line indented less than the
+        // children). Track the end of the last *data* line: a deeper (nested) line, or
+        // a sibling key at the child indent — skipping blanks and a trailing
+        // block-level comment (a `#` sitting at the child indent).
+        var anchorEnd = -1
+        var ls = firstLineStart
+        while ls < n {
+            var le = ls
+            while le < n && bytes[le] != newline && bytes[le] != carriageReturn { le += 1 }
+            var after = le
+            if after < n { after += (bytes[after] == carriageReturn && after + 1 < n && bytes[after + 1] == newline) ? 2 : 1 }
+            var c = ls
+            while c < le && (bytes[c] == space || bytes[c] == tab) { c += 1 }
+            let indent = c - ls
+            let blank = (c == le)
+            let comment = (c < le && bytes[c] == hash)
+            if !blank && indent < childCol { break }                       // dedent → block ends
+            if !blank && !(indent == childCol && comment) { anchorEnd = after }   // a data line
+            ls = after
+        }
+        guard anchorEnd >= 0 else { throw YAMLEditError.unsupportedValueShape(path: path) }
+
+        var line = childIndent
+        line.append(contentsOf: keyToken.utf8)
+        line.append(colon); line.append(space)
+        line.append(contentsOf: valueToken.utf8)
+
+        if anchorEnd > 0 && (bytes[anchorEnd - 1] == newline || bytes[anchorEnd - 1] == carriageReturn) {
+            // Anchor line ends with a terminator; the new line follows with its own.
+            if anchorEnd >= 2 && bytes[anchorEnd - 1] == newline && bytes[anchorEnd - 2] == carriageReturn {
+                line.append(carriageReturn); line.append(newline)
+            } else if bytes[anchorEnd - 1] == carriageReturn {
+                line.append(carriageReturn)
+            } else {
+                line.append(newline)
+            }
+            return String(decoding: bytes[0..<anchorEnd] + line + bytes[anchorEnd...], as: UTF8.self)
+        } else {
+            // Last line had no terminator (end of file): separate with a line break
+            // matching the document's style — CRLF if it uses CRLF, else LF.
+            var sep: [UInt8] = [newline]
+            var k = anchorEnd - 1
+            while k >= 0 && bytes[k] != newline { k -= 1 }
+            if k >= 1 && bytes[k - 1] == carriageReturn { sep = [carriageReturn, newline] }
+            return String(decoding: bytes[0..<anchorEnd] + sep + line + bytes[anchorEnd...], as: UTF8.self)
+        }
+    }
+
+    /// The index of the `:` separating key from value on a block-mapping line
+    /// `[lineStart, lineEnd)` — quote-aware, so a `:` inside a quoted key is skipped.
+    /// The separator is a `:` at end-of-line or followed by a space/tab.
+    private static func keyValueColon(_ bytes: [UInt8], _ lineStart: Int, _ lineEnd: Int) -> Int? {
+        var i = lineStart
+        while i < lineEnd && (bytes[i] == space || bytes[i] == tab) { i += 1 }   // indent
+        if i < lineEnd && (bytes[i] == quoteDouble || bytes[i] == quoteSingle) {
+            let q = bytes[i]; i += 1
+            while i < lineEnd {
+                if q == quoteDouble && bytes[i] == backslash { i += 2; continue }
+                if bytes[i] == q {
+                    if q == quoteSingle && i + 1 < lineEnd && bytes[i + 1] == quoteSingle { i += 2; continue }
+                    i += 1; break
+                }
+                i += 1
+            }
+        }
+        while i < lineEnd {
+            if bytes[i] == colon && (i + 1 == lineEnd || bytes[i + 1] == space || bytes[i + 1] == tab) { return i }
+            i += 1
+        }
+        return nil
+    }
+}
+
 /// A path into a YAML document: an array of string keys and integer indices,
 /// modeled on Foundation's `[CodingKey]` / `codingPath`. Written directly with
 /// literals: `["server", "port"]`, `["servers", 0, "port"]`.
@@ -449,7 +661,8 @@ public enum YAMLPath {
     }
 }
 
-/// Errors from ``YAMLEditor/set(_:at:to:)`` and ``YAMLEditor/unset(_:at:)``.
+/// Errors from ``YAMLEditor/set(_:at:to:)``, ``YAMLEditor/unset(_:at:)``, and
+/// ``YAMLEditor/insert(_:at:to:)``.
 /// Path-bearing cases carry the trail from the document root to the failure, like
 /// `DecodingError.Context.codingPath`.
 public enum YAMLEditError: Error, Sendable {
@@ -467,4 +680,8 @@ public enum YAMLEditError: Error, Sendable {
     /// continuation line, a key sharing a `-` marker's line (compact block
     /// sequence), or a scalar inside an inline `[…]`/`{…}` collection.
     case unsupportedValueShape(path: [YAMLPath.Component])
+    /// A real value already exists at the given path. Thrown by ``YAMLEditor/insert(_:at:to:)``,
+    /// which only fills a null or adds a missing key — use ``YAMLEditor/set(_:at:to:)`` to
+    /// change a value that is already there. An empty string (`""`) counts as a real value.
+    case valueAlreadyPresent(path: [YAMLPath.Component])
 }
